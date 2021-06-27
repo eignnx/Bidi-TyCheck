@@ -110,7 +110,15 @@ infer ctx (FnExpr (AnnParam param paramTy) body) =
   in case infer ctx' body of
     Ok bodyTy -> Ok $ FnTy paramTy bodyTy
     err -> err
-infer ctx fn@(FnExpr (Infer param) body) = Err $ RootCause $ "I can't infer the type of the parameter `" ++ param ++ "` in the function `" ++ show fn ++ "`"
+infer ctx fn@(FnExpr (Infer param) body) =
+  Err $ RootCause $ "I can't infer the type of the parameter `" ++ param ++ "` in the function `" ++ show fn ++ "`"
+
+infer ctx ifExpr@(If cond yes no) =
+  case (infer ctx yes, infer ctx no) of
+       (Ok yesTy, _) -> check ctx ifExpr yesTy
+       (_, Ok noTy) -> check ctx ifExpr noTy
+       (err1, err2) -> multiError [err1, err2] `addError` "I couldn't infer the type of the `if` expression"
+
 infer _ expr = Err $ RootCause $ "I don't have enough information to infer the type of `" ++ show expr ++ "`"
 
 check :: Ctx -> Expr -> Ty -> Res Ty
