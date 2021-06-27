@@ -5,18 +5,18 @@ main = do
   putStrLn "Working!"
 
 data Ty
-  = UnitTy
-  | BoolTy
-  | NatTy
-  | FnTy Ty Ty
+  = PolyTy String [Ty]
+  | FnTy Ty Ty -- Yes, I know this could be expressed as `PolyTy "=>" [a, b]`. Sorry not sorry.
   | InferTy
   deriving Eq
 
+unitTy = PolyTy "()" []
+boolTy = PolyTy "Bool" []
+natTy = PolyTy "Nat" []
+
 instance Show Ty where
-  show UnitTy = "()"
-  show BoolTy = "Bool"
-  show NatTy = "Nat"
-  show (FnTy param ret) = show param ++ " => " ++ show ret
+  show (PolyTy name []) = name
+  show (FnTy paramTy retTy) = show paramTy ++ " => " ++ show retTy
   show InferTy = "_"
 
 type Ctx = [(String, Ty)]
@@ -92,10 +92,11 @@ multiError rs = Err $ go rs
 infer :: Ctx -> Expr -> Res Ty
 infer ctx (Var x) = toRes (lookup x ctx) reason
   where reason = RootCause ("The variable `" ++ x ++ "` is not defined anywhere")
-infer ctx (UnitConst) = Ok UnitTy
-infer ctx (BoolConst _) = Ok BoolTy
-infer ctx (NatConst _) = Ok NatTy
-infer ctx (Ann expr ty) = (check ctx expr ty) `addError` ("Expression `" ++ show expr ++ "` does not have type `" ++ show ty ++ "`")
+infer ctx (UnitConst) = Ok unitTy
+infer ctx (BoolConst _) = Ok boolTy
+infer ctx (NatConst _) = Ok natTy
+infer ctx (Ann expr ty) =
+  (check ctx expr ty) `addError` ("Expression `" ++ show expr ++ "` does not have type `" ++ show ty ++ "`")
 infer ctx (App fn arg) =
   case infer ctx fn of
        Ok (FnTy argTy retTy) ->
@@ -103,7 +104,7 @@ infer ctx (App fn arg) =
               Ok _ -> Ok retTy
               err -> err `addError` ("The function `" ++ show fn ++ "` was expecting a `" ++ show argTy ++ "` but was given `" ++ show arg ++ "`. This is a problem")
        Ok wrongFnTy -> Err $ RootCause $ "`" ++ show fn ++ "` is a `" ++ show wrongFnTy ++ "`, not a function"
-       err -> err `addError` ("I couldn't infer the type of `" ++ show fn ++ "` in function application")
+       err -> err
 
 infer ctx (FnExpr (AnnParam param paramTy) body) =
   let ctx' = (param, paramTy) : ctx
@@ -123,21 +124,21 @@ infer _ expr = Err $ RootCause $ "I don't have enough information to infer the t
 
 check :: Ctx -> Expr -> Ty -> Res Ty
 check ctx (If cond yes no) ty =
-  case ( check ctx cond BoolTy
+  case ( check ctx cond boolTy
        , check ctx yes ty
        , check ctx no ty
        ) of
          (Ok _, Ok _, Ok _) -> Ok ty
          (condErr@(Err _), yesRes, noRes) ->
            multiError [condErr', yesRes, noRes]
-            where condErr' = condErr `addError` ("The condition of an `if` must have type `" ++ show BoolTy ++ "`, but this one doesn't")
+            where condErr' = condErr `addError` ("The condition of an `if` must have type `" ++ show boolTy ++ "`, but this one doesn't")
          (_, yesRes, noRes) -> multiError [yesRes, noRes]
        
-check ctx fn@(FnExpr param body) (FnTy paramTy bodyTy) =
+check ctx fn@(FnExpr param body) (FnTy paramTy retTy) =
   let pName = paramName param
-  in case check ((pName, paramTy) : ctx) body bodyTy of
-       Ok _ -> Ok (FnTy paramTy bodyTy)
-       err -> err `addError` ("Body of function `" ++ show fn ++ "` does not match expected type `" ++ show bodyTy ++ "`")
+  in case check ((pName, paramTy) : ctx) body retTy of
+       Ok _ -> Ok (FnTy paramTy retTy)
+       err -> err `addError` ("Body of function `" ++ show fn ++ "` does not match expected type `" ++ show retTy ++ "`")
 
 check ctx (Let (AnnParam var varTy) binding body) ty =
   case check ctx binding varTy of
@@ -156,6 +157,8 @@ check ctx expr ty =
        Ok ty' -> Err $ RootCause $ "Expression `" ++ show expr ++ "` has type `" ++ show ty' ++ "`, not `" ++ show ty ++ "`"
        err -> err `addError` ("The expression `" ++ show expr ++ "` doesn't typecheck")
 
--- print $ check [] (Ann (FnExpr (AnnParam "x" NatTy) (If (NatConst 1) (App (Var "f") UnitConst) (FnExpr (Infer "z") UnitConst))) (FnTy InferTy NatTy)) UnitTy
+-- print $ check [] (Ann (FnExpr (AnnParam "x" NatTy) (If (NatConst 1) (App (Var "f") UnitConst) (FnExpr (Infer "z") UnitConst))) (FnTy InferTy NatTy)) unitTy
 -- print $ check [] (BoolConst True) InferTy
 -- print $ check [] (Let (Infer "x") (FnExpr (Infer "y") UnitConst) UnitConst) InferTy
+-- print $ infer [] (If (BoolConst True) UnitConst UnitConst)
+-- print $ infer [] (If (BoolConst True) (Var "foo") (FnExpr (Infer "x") UnitConst))
