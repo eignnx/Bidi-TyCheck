@@ -30,6 +30,7 @@ data Expr
   | App Expr Expr
   | If Expr Expr Expr
   | Ann Expr Ty
+  | Let Param Expr Expr
 
 instance Show Expr where
   show (Var x) = x
@@ -40,6 +41,7 @@ instance Show Expr where
   show (App fn arg) = show fn ++ " " ++ show arg
   show (If cond yes no) = "if " ++ show cond ++ " then " ++ show yes ++ " else " ++ show no
   show (Ann expr ty) = show expr ++ ": " ++ show ty
+  show (Let var binding body) = "let " ++ show var ++ " = " ++ show binding ++ " in " ++ show body
 
 data Param
   = Infer String
@@ -99,14 +101,16 @@ infer ctx (App fn arg) =
        Ok (FnTy argTy retTy) ->
          case check ctx arg argTy of
               Ok _ -> Ok retTy
-              err -> err `addError` ("The function`" ++ show fn ++ "` was expecting a `" ++ show argTy ++ "` but was given `" ++ show arg ++ "` which has a different type")
+              err -> err `addError` ("The function `" ++ show fn ++ "` was expecting a `" ++ show argTy ++ "` but was given `" ++ show arg ++ "`. This is a problem")
+       Ok wrongFnTy -> Err $ RootCause $ "`" ++ show fn ++ "` is a `" ++ show wrongFnTy ++ "`, not a function"
        err -> err `addError` ("I couldn't infer the type of `" ++ show fn ++ "` in function application")
 
 infer ctx (FnExpr (AnnParam param paramTy) body) =
-  case infer ctx body of
+  let ctx' = (param, paramTy) : ctx
+  in case infer ctx' body of
     Ok bodyTy -> Ok $ FnTy paramTy bodyTy
     err -> err
-infer ctx (FnExpr (Infer param) body) = Err $ RootCause $ "I can't infer the type of the parameter `" ++ param ++ "`"
+infer ctx fn@(FnExpr (Infer param) body) = Err $ RootCause $ "I can't infer the type of the parameter `" ++ param ++ "` in the function `" ++ show fn ++ "`"
 infer _ expr = Err $ RootCause $ "I don't have enough information to infer the type of `" ++ show expr ++ "`"
 
 check :: Ctx -> Expr -> Ty -> Res Ty
@@ -127,11 +131,23 @@ check ctx fn@(FnExpr param body) (FnTy paramTy bodyTy) =
        Ok _ -> Ok (FnTy paramTy bodyTy)
        err -> err `addError` ("Body of function `" ++ show fn ++ "` does not match expected type `" ++ show bodyTy ++ "`")
 
+check ctx (Let (AnnParam var varTy) binding body) ty =
+  case check ctx binding varTy of
+       Ok _ -> check ((var, varTy):ctx) body ty
+       err -> err `addError` ("The variable `" ++ var ++ "` is declared as a `" ++ show varTy ++ "`, but is bound to `" ++ show binding ++ "`. This is a problem")
+  -- check ctx (App (FnExpr var body) binding) ty
+
+check ctx (Let (Infer var) binding body) ty =
+  case infer ctx binding of
+       Ok varTy -> check ((var, varTy):ctx) body ty
+       err -> err `addError` ("The declaration of `" ++ var ++ "` needs a type annotation")
+
 check ctx expr ty = 
   case infer ctx expr of
        Ok ty' | ty' == ty || ty == InferTy -> Ok ty'
        Ok ty' -> Err $ RootCause $ "Expression `" ++ show expr ++ "` has type `" ++ show ty' ++ "`, not `" ++ show ty ++ "`"
-       err -> err `addError` ("I couldn't typecheck `" ++ show expr ++ "`")
+       err -> err `addError` ("The expression `" ++ show expr ++ "` doesn't typecheck")
 
 -- print $ check [] (Ann (FnExpr (AnnParam "x" NatTy) (If (NatConst 1) (App (Var "f") UnitConst) (FnExpr (Infer "z") UnitConst))) (FnTy InferTy NatTy)) UnitTy
 -- print $ check [] (BoolConst True) InferTy
+-- print $ check [] (Let (Infer "x") (FnExpr (Infer "y") UnitConst) UnitConst) InferTy
