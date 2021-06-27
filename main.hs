@@ -1,59 +1,25 @@
+module Main ( main
+            , infer
+            , check
+            ) where
+
 import Data.List
+import System.IO
+
+import Parse (parseExpr)
+import Ty
+import Syntax
 
 main :: IO ()
 main = do
-  putStrLn "Working!"
+  putStr "::> "
+  hFlush stdout
+  input <- getLine
+  print $ parseExpr input
+  main
 
-data Ty
-  = PolyTy String [Ty]
-  | FnTy Ty Ty -- Yes, I know this could be expressed as `PolyTy "=>" [a, b]`. Sorry not sorry.
-  | InferTy
-  deriving Eq
-
-unitTy = PolyTy "()" []
-boolTy = PolyTy "Bool" []
-natTy = PolyTy "Nat" []
-
-instance Show Ty where
-  show (PolyTy name []) = name
-  show (FnTy paramTy retTy) = show paramTy ++ " => " ++ show retTy
-  show InferTy = "_"
 
 type Ctx = [(String, Ty)]
-
-data Expr
-  = Var String
-  | UnitConst
-  | BoolConst Bool
-  | NatConst Int
-  | FnExpr Param Expr
-  | App Expr Expr
-  | If Expr Expr Expr
-  | Ann Expr Ty
-  | Let Param Expr Expr
-
-instance Show Expr where
-  show (Var x) = x
-  show UnitConst = "()"
-  show (BoolConst x) = if x then "true" else "false"
-  show (NatConst x) = show x
-  show (FnExpr param body) = "{ |" ++ show param ++ "| " ++ show body ++ " }"
-  show (App fn arg) = show fn ++ " " ++ show arg
-  show (If cond yes no) = "if " ++ show cond ++ " then " ++ show yes ++ " else " ++ show no
-  show (Ann expr ty) = show expr ++ ": " ++ show ty
-  show (Let var binding body) = "let " ++ show var ++ " = " ++ show binding ++ " in " ++ show body
-
-data Param
-  = Infer String
-  | AnnParam String Ty
-
-paramName :: Param -> String
-paramName (Infer name) = name
-paramName (AnnParam name _) = name
-
-instance Show Param where
-  show (Infer x) = x
-  show (AnnParam x ty) = x ++ ": " ++ show ty
 
 data Res a
   = Ok a
