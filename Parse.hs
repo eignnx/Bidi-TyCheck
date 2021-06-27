@@ -25,7 +25,7 @@ langDef = Tok.LanguageDef
   , Tok.identLetter     = alphaNum <|> oneOf "_'"
   , Tok.opStart         = oneOf ":!#$%&*+./<=>?@\\^|-~"
   , Tok.opLetter        = oneOf ":!#$%&*+./<=>?@\\^|-~"
-  , Tok.reservedNames   = ["def", "true", "false", "let", "in"]
+  , Tok.reservedNames   = ["def", "true", "false", "let", "in", "if", "then", "else"]
   , Tok.reservedOpNames = []
   , Tok.caseSensitive   = True
   }
@@ -118,22 +118,33 @@ optionTyP = do
   t <- ty
   return $ optionTy t
 
-resultTyP :: Parser Ty
-resultTyP = ty `chainl1` (do { symbol "!"; return resultTy })
+tyTable :: Ex.OperatorTable String () Identity Ty
+tyTable = [
+    [
+      Ex.Infix (do { symbol "!"; return resultTy }) Ex.AssocLeft
+    ]
+  ]
+
+ty :: Parser Ty
+ty = Ex.buildExpressionParser tyTable tyFactor
+
+-- resultTyP :: Parser Ty
+-- resultTyP = (ty <* symbol "!") `chainl1` (do { return resultTy })
 -- resultTyP = do
 --   t <- ty -- Yikes! This Programmer Thinks He Can Get Away With Left Recursion!
 --   symbol "!"
 --   e <- ty
 --   return $ resultTy t e
 
-ty :: Parser Ty
-ty =  (symbol "()" *> return unitTy)
+tyFactor :: Parser Ty
+tyFactor
+  =   (symbol "()" *> return unitTy)
   <|> listTyP
   <|> setTyP
   <|> mapTyP
   <|> optionTyP
   <|> (try $ do { ident <- identifier; return $ PolyTy ident [] })
-  <|> try resultTyP
+  -- <|> try resultTyP
 
 param :: Parser Param
 param = try annotated <|> inferred
